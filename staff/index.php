@@ -72,10 +72,19 @@ $config = [
     <div id="followList" class="follow-list"><p class="small muted">Caricamento…</p></div>
     <button class="btn ghost small" id="followAll" type="button">Segui tutto</button>
   </div>
+  <button class="btn block primary" id="codesBtn" type="button">🔢 Codici camere</button>
   <p class="small" id="pushState"></p>
   <button class="btn block" id="pushTest">Invia notifica di prova</button>
   <?php if ($config['admin']): ?><a class="btn block" href="<?= h($config['admin']) ?>">Gestione hotel</a><?php endif; ?>
   <a class="btn block" href="<?= h(app_path('logout.php')) ?>">Esci</a>
+  <button class="btn ghost block" data-close>Chiudi</button>
+</dialog>
+
+<dialog id="codesDialog" class="sheet">
+  <h2>Codici camere</h2>
+  <p class="small muted">Il codice da dare all'ospite al check-in. Cambia a ogni check-out.</p>
+  <input id="codeSearch" type="search" placeholder="Cerca camera o ospite…">
+  <div id="codesList" class="codes-list"></div>
   <button class="btn ghost block" data-close>Chiudi</button>
 </dialog>
 

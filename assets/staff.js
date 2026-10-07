@@ -159,7 +159,6 @@
       }
       var c = el('button', 'tcard' + (active[r.id] ? ' busy' : '') + (r.dnd ? ' dnd' : ''));
       c.appendChild(el('span', 'tlabel', r.label));
-      c.appendChild(el('span', 'tcode', r.code || '—'));
       c.appendChild(el('span', 'tguest', r.guest || ''));
       c.appendChild(el('span', 'tflag', (r.dnd ? '🔕 ' : '') + (active[r.id] || '')));
       c.onclick = function () { openRoom(r); };
@@ -167,6 +166,33 @@
     });
     if (!grid.children.length) grid.appendChild(el('p', 'empty', 'Nessuna camera.'));
   }
+
+  // Codes list (menu › Codici camere): what reception reads to the guest at check-in.
+  function renderCodes() {
+    var box = $('codesList'), q = $('codeSearch').value.trim().toLowerCase();
+    box.innerHTML = '';
+    var zone = null;
+    state.rooms.forEach(function (r) {
+      if (q && (r.label + ' ' + (r.zone || '') + ' ' + (r.guest || '')).toLowerCase().indexOf(q) < 0) return;
+      if ((r.zone || '') !== zone) {
+        zone = r.zone || '';
+        if (state.zones.length) box.appendChild(el('h3', 'zone-title', zone || 'Senza piano'));
+      }
+      var row = el('div', 'code-row');
+      row.appendChild(el('span', 'code-room', rname(r.label)));
+      row.appendChild(el('span', 'code-guest', r.guest || ''));
+      row.appendChild(el('span', 'code-val', r.code || '—'));
+      box.appendChild(row);
+    });
+    if (!box.children.length) box.appendChild(el('p', 'empty', 'Nessuna camera.'));
+  }
+  $('codeSearch').oninput = renderCodes;
+  $('codesBtn').onclick = function () {
+    $('menuDialog').close();
+    $('codeSearch').value = '';
+    renderCodes();
+    $('codesDialog').showModal();
+  };
 
   function errToast() { toast('Operazione non riuscita, riprova.'); refresh(); }
   document.querySelectorAll('[data-close]').forEach(function (b) { b.onclick = function () { b.closest('dialog').close(); }; });
