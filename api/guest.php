@@ -1,274 +1,138 @@
 <?php
 /**
- * Guest API — used by the customer page a table's QR code opens (t.php).
- * The table's QR token finds the table; the order's 6-digit access code (sent
- * on WhatsApp to the numbers left with the order) lets this browser in, for
- * that order only. Without it only {locked: true, ...} comes back.
- *
- * POST {k, action: 'unlock', code}                 → check the code, let this browser in
- * GET  ?k=<token>                                  → the table's order + open requests
- * GET  ?k=<token>&menu=1                          → the menu (to swap a dish)
- * POST {k, action: 'consent', target, accept}      → the guest's own marketing consent (see consent.php)
- * POST {k, action: 'self_register', name, surname, city, country, phone, people, consent} → guest ordering: code on WhatsApp
- * POST {k, action: 'self_verify', code}            → guest ordering: the code opens a new order
- * POST {k, action: 'self_send', cart: [{id, qty, note}]} → guest ordering: dishes to the kitchen
- * POST {k, type: bill|waiter|change, order_item_id?, replacement_menu_item_id?, message?} → new request
+ * Guest API (room QR page). POST JSON {a, k, ...}:
+ *   verify  {code}                                   -> checks the room code, sets the guest cookie
+ *   request {type_id, note?, when?, time?, items?}   -> sends a request (when: now|today|tomorrow, time: HH:MM,
+ *                                                        items: [{id, qty}])
+ *   cancel  {id}                                     -> withdraws a request not yet taken
+ *   dnd     {on}                                     -> "do not disturb" on/off
+ *   status                                           -> this guest's requests, DND, which departments are open
+ * The guest cookie is SameSite=Lax, so other sites cannot send requests on a guest's behalf.
  */
+require __DIR__ . '/../includes/app.php';
+require __DIR__ . '/../includes/guest_i18n.php';
 
-require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/table_requests.php';
-require_once __DIR__ . '/../includes/whatsapp_guest.php';
-require_once __DIR__ . '/../includes/consent.php';
-require_once __DIR__ . '/../includes/self_order.php';
-i18n_prefer_browser('it');
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') json_out(['error' => 'method'], 405);
 
-header('Content-Type: application/json');
-header('Cache-Control: no-store');
+$in = input();
+$room = room_by_token((string) ($in['k'] ?? ''));
+$hotel = $room ? hotel((int) $room['hotel_id']) : null;
+if (!$room || !$room['active'] || !$hotel || !$hotel['active']) json_out(['error' => 'not_found'], 404);
 
-$input = $_SERVER['REQUEST_METHOD'] === 'POST'
-    ? (json_decode(file_get_contents('php://input'), true) ?: [])
-    : $_GET;
-$table = tableByQrToken((string) ($input['k'] ?? ''));
-if (!$table) {
-    jsonResponse(['success' => false, 'message' => t('guest_bad_qr')], 404);
-}
+$roomId = (int) $room['id'];
+$current = (int) $room['current_stay_id'];
+$action = (string) ($in['a'] ?? '');
+$lang = guest_lang();
 
-// The service is for the guests of the table's current order who left a
-// number and entered the code they got on WhatsApp.
-$order   = tableCurrentOrder($table);
-$granted = guestAccessGranted($table, $order);
-
-/** Not let in: only whether there is something to unlock. */
-function lockedState(array $table, ?array $order): array
-{
-    return [
-        'success'   => true,
-        'locked'    => true,
-        'table'     => $order ? $order['table_number'] : $table['table_number'],
-        'has_order' => (bool) $order,
-        'has_phone' => $order ? orderHasGuestPhone($order) : false,
-        // Guest ordering: a free table can be opened from here.
-        'self_order'   => selfOrderEnabled(),
-        'self_pending' => selfOrderPending($table),
-    ];
-}
-
-// Guest ordering, steps 1 and 2: details → code on WhatsApp → the code opens the order.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($input['action'] ?? '') === 'self_register') {
-    $res = selfOrderRegister($table, $input);
-    if (isset($res['error'])) jsonResponse(['success' => false, 'message' => t($res['error'])]);
-    jsonResponse(lockedState($table, $order));
-}
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($input['action'] ?? '') === 'self_verify') {
-    $res = selfOrderVerify($table, (string) ($input['code'] ?? ''));
-    if (isset($res['error'])) jsonResponse(['success' => false, 'message' => t($res['error'])]);
-    // A returning guest: "Welcome back, Luca!"
-    $selfWelcome = !empty($res['welcome']) ? t('self_welcome_back', ['name' => $res['welcome']]) : null;
-    $order   = tableCurrentOrder($table);
-    $granted = true;
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($input['action'] ?? '') === 'unlock') {
-    if (!$order || !orderHasGuestPhone($order)) {
-        jsonResponse(['success' => false, 'message' => t('guest_need_phone')]);
+if ($action === 'verify') {
+    $ip = client_ip();
+    if (code_attempts_blocked($roomId, $ip)) json_out(['error' => 'too_many'], 429);
+    $code = preg_replace('/\D/', '', (string) ($in['code'] ?? ''));
+    if ($code === '' || !$room['code'] || !hash_equals((string) $room['code'], $code)) {
+        code_attempt_failed($roomId, $ip);
+        json_out(['error' => 'wrong_code'], 400);
     }
-    orderGuestCode((int) $order['id']); // an order whose link wasn't sent yet still gets its code
-    $order = tableCurrentOrder($table);
-    $res   = guestUnlock($table, $order, (string) ($input['code'] ?? ''));
-    if ($res !== 'ok') {
-        jsonResponse(['success' => false, 'message' => t($res === 'locked' ? 'guest_code_locked' : 'guest_code_bad')]);
+    guest_cookie_set($roomId, $current);
+    json_out(['ok' => true] + status_payload($room, $current, $lang));
+}
+
+// Every other action needs the code of the current guests.
+$sid = guest_cookie_stay($roomId);
+if ($sid === null) json_out(['error' => 'code'], 403);
+if ($sid !== $current) json_out(['error' => 'expired'], 403);
+
+if ($action === 'request') {
+    $st = db()->prepare('SELECT t.* FROM request_types t JOIN departments d ON d.id = t.department_id
+                          WHERE t.id = ? AND t.hotel_id = ? AND t.active = 1 AND d.active = 1');
+    $st->execute([(int) ($in['type_id'] ?? 0), $hotel['id']]);
+    $type = $st->fetch();
+    if (!$type) json_out(['error' => 'type'], 400);
+    $dept = department((int) $type['department_id'], (int) $hotel['id']);
+    if (!department_open($dept)) json_out(['error' => 'closed', 'hours' => department_hours($dept)], 400);
+
+    $note = mb_substr(trim((string) ($in['note'] ?? '')), 0, 500) ?: null;
+
+    $dueAt = null;
+    if ($type['ask_time'] && ($in['when'] ?? 'now') !== 'now') {
+        $time = (string) ($in['time'] ?? '');
+        if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time)) json_out(['error' => 'pick_time'], 400);
+        $day = ($in['when'] ?? '') === 'tomorrow' ? date('Y-m-d', strtotime('tomorrow')) : date('Y-m-d');
+        $dueAt = "$day $time:00";
+        if (strtotime($dueAt) < time() - 300) json_out(['error' => 'pick_time'], 400);
     }
-    logActivity('guest_unlocked', 'orders', (int) $order['id']);
-    $granted = true;
-}
 
-if (!$granted) {
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        jsonResponse(['success' => false, 'locked' => true, 'message' => t('guest_need_code')], 403);
-    }
-    jsonResponse(lockedState($table, $order));
-}
-
-/**
- * The bill can be asked for once the kitchen is done: every dish still to pay
- * is ready or served (and there is at least one).
- */
-function guestBillReady(array $items): bool
-{
-    $toPay = array_filter($items, fn($i) => !$i['paid']);
-    return $toPay && !array_filter($toPay, fn($i) => !in_array($i['status'], ['ready', 'served'], true));
-}
-
-/** What the guest may see: dishes, their progress, the total — no staff data. */
-function guestState(array $table): array
-{
-    $order = tableCurrentOrder($table);
     $items = [];
-    $total = 0.0;
-    if ($order) {
-        [$rows, $total] = tableMealItems((int) $order['id']);
-        foreach ($rows as $r) {
-            $items[] = [
-                'id'        => (int) $r['id'],
-                'name'      => $r['item_name'],
-                'quantity'  => (int) $r['quantity'],
-                'seat'      => $r['seat'] !== null ? (int) $r['seat'] : null,
-                'status'    => $r['status'],
-                'label'     => t('guest_st_' . $r['status']),
-                'paid'      => $r['order_status'] === 'paid',
-                'changeable'=> in_array($r['status'], GUEST_CHANGEABLE_STATUSES, true) && $r['order_status'] !== 'paid',
-            ];
+    if ($type['ask_items']) {
+        $wanted = [];
+        foreach ((array) ($in['items'] ?? []) as $it) {
+            $id = (int) ($it['id'] ?? 0);
+            $qty = max(1, min(20, (int) ($it['qty'] ?? 0)));
+            if ($id && (int) ($it['qty'] ?? 0) > 0) $wanted[$id] = ($wanted[$id] ?? 0) + $qty;
         }
-    }
-    $stmt = getDBConnection()->prepare("
-        SELECT tr.id, tr.type, tr.status, mi.name AS item_name, rmi.name AS replacement_name,
-               su.full_name AS seen_by
-        FROM table_requests tr
-        LEFT JOIN users su ON su.id = tr.seen_by
-        LEFT JOIN order_items oi ON oi.id = tr.order_item_id
-        LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
-        LEFT JOIN menu_items rmi ON rmi.id = tr.replacement_menu_item_id
-        WHERE tr.table_id = ? AND tr.status <> 'done'
-        ORDER BY tr.id
-    ");
-    $stmt->execute([$table['id']]);
-
-    // Bill on WhatsApp: only for guests who left a number (names/last digits only).
-    $waTargets = $order ? array_map(fn($t) => ['key' => $t['key'], 'label' => $t['label']], guestWhatsappTargets($order)) : [];
-
-    // Marketing consent: asked to each guest number that hasn't decided yet.
-    $consentTargets = $order ? consentPromptTargets($order) : [];
-    $consent = $consentTargets ? [
-        'text'    => consentText('prompt', currentLang()),
-        'targets' => array_map(fn($t) => ['key' => $t['key'], 'label' => $t['label']], $consentTargets),
-    ] : null;
-
-    // The guest's latest call to the waiter, for the banner at the top: still
-    // open / answered, or answered in the last 2 minutes (a waiter often taps
-    // "On my way" and "Done" within seconds: the guest must still see who's coming).
-    $st = getDBConnection()->prepare("
-        SELECT tr.status, su.full_name AS seen_by
-        FROM table_requests tr LEFT JOIN users su ON su.id = tr.seen_by
-        WHERE tr.table_id = ? AND tr.type = 'waiter'
-          AND (tr.status <> 'done' OR (tr.seen_by IS NOT NULL AND COALESCE(tr.seen_at, tr.done_at) > NOW() - INTERVAL 2 MINUTE))
-        ORDER BY tr.id DESC LIMIT 1
-    ");
-    $st->execute([$table['id']]);
-    $call = $st->fetch() ?: null;
-
-    // The table's waiter (name), for the guest's notices: whoever took
-    // the order — on a guest's own order, the waiter who took the table.
-    $waiterName = null;
-    if ($order) {
-        $wid = !empty($order['created_by_guest']) ? (int) ($order['assigned_waiter_id'] ?? 0) : (int) $order['waiter_id'];
-        if ($wid) {
-            $st = getDBConnection()->prepare("SELECT full_name FROM users WHERE id = ? AND active = 1");
-            $st->execute([$wid]);
-            $waiterName = $st->fetchColumn() ?: null;
+        foreach (menu_items((int) $hotel['id'], (int) $type['department_id']) as $m) {
+            if (!isset($wanted[(int) $m['id']])) continue;
+            $names = names_decode($m['names']);
+            $items[] = ['id' => (int) $m['id'], 'name' => name_in($names, 'it'), 'name_g' => name_in($names, $lang),
+                        'qty' => $wanted[(int) $m['id']], 'price' => $m['price'] === null ? null : (float) $m['price']];
         }
+        if (!$items) json_out(['error' => 'pick_items'], 400);
     }
 
-    return [
-        'success'  => true,
-        'consent'  => $consent,
-        'waiter_name' => $waiterName,
-        // Guest ordering: this order takes dishes from the table page.
-        'can_order'=> selfOrderCanOrder($order),
-        'bill_ready' => guestBillReady($items),
-        'wa_targets' => $waTargets,
-        'table'    => $order ? $order['table_number'] : $table['table_number'],
-        'has_order'=> (bool) $order,
-        'items'    => $items,
-        'total'    => $total,
-        'total_fmt'=> formatCurrency($total),
-        'requests' => $stmt->fetchAll(),
-        'call'     => $call,
-    ];
+    $res = request_create($room, $current, $type, $note, $dueAt, $items);
+    $data = ['ok' => true, 'result' => $res['result']] + status_payload($room, $current, $lang);
+    if ($res['result'] === 'wait' || $res['result'] === 'scheduled') json_out($data);
+    $r = request_row($res['id']);
+    json_out_then($data, fn() => notify_staff($r));
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($input['action'] ?? '') === 'self_send') {
-    $cur = tableCurrentOrder($table);
-    $res = $cur ? selfOrderSend($cur, (array) ($input['cart'] ?? [])) : ['error' => 'self_err_off'];
-    if (isset($res['error'])) jsonResponse(['success' => false, 'message' => t($res['error'])]);
-    jsonResponse(guestState($table) + ['sent' => $res['ok']]);
+if ($action === 'cancel') {
+    db()->prepare("UPDATE requests SET status = 'cancelled', done_at = NOW() WHERE id = ? AND stay_id = ? AND status IN ('scheduled','open')")
+        ->execute([(int) ($in['id'] ?? 0), $current]);
+    json_out(['ok' => true] + status_payload($room, $current, $lang));
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($input['action'] ?? '') === 'consent') {
-    // The guest's own decision, with the exact text they read (proof of consent).
-    $target = null;
-    foreach ($order ? consentPromptTargets($order) : [] as $t) {
-        if ($t['key'] === (string) ($input['target'] ?? '')) $target = $t;
-    }
-    if (!$target) {
-        jsonResponse(['success' => false, 'message' => t('consent_err_target')]);
-    }
-    $accept = !empty($input['accept']);
-    $lang   = currentLang() === 'it' ? 'it' : 'en';
-    setConsent($target['phone'], $accept ? 'granted' : 'declined', 'guest_page', consentText('prompt', $lang), (int) $order['id'], $lang);
-    if ($accept) sendConsentConfirmation($target['phone']);
-    logActivity($accept ? 'marketing_consent_granted' : 'marketing_consent_declined', 'orders', (int) $order['id'], ['phone_end' => substr($target['phone'], -4)]);
-    jsonResponse(guestState($table) + ['consent_done' => $accept ? 'granted' : 'declined']);
+if ($action === 'dnd') {
+    db()->prepare('UPDATE rooms SET dnd = ? WHERE id = ?')->execute([empty($in['on']) ? 0 : 1, $roomId]);
+    json_out(['ok' => true] + status_payload($room, $current, $lang));
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($input['action'] ?? '', ['unlock', 'self_verify'], true)) {
-    // "Bill on WhatsApp": the bill request as usual, plus the receipt copy
-    // sent straight away to the chosen guest's number.
-    // No bill while dishes are still being prepared.
-    if (($input['type'] ?? '') === 'bill' && !guestState($table)['bill_ready']) {
-        jsonResponse(['success' => false, 'message' => t('guest_bill_not_ready')]);
-    }
+if ($action === 'status') {
+    json_out(['ok' => true] + status_payload($room, $current, $lang));
+}
 
-    $waTarget = null;
-    if (($input['type'] ?? '') === 'bill' && !empty($input['whatsapp'])) {
-        $order = tableCurrentOrder($table);
-        foreach ($order ? guestWhatsappTargets($order) : [] as $t) {
-            if ($t['key'] === (string) $input['whatsapp']) $waTarget = $t;
+json_out(['error' => 'action'], 400);
+
+/** The guest's requests (open, scheduled, taken and the ones done in the last 10 minutes), DND, open departments. */
+function status_payload(array $room, int $stayId, string $lang): array
+{
+    $st = db()->prepare("SELECT q.id, q.type_name, q.icon, q.status, q.note, q.items, q.total, q.due_at, q.reply, q.urgent,
+                                TIMESTAMPDIFF(SECOND, q.last_call_at, NOW()) AS ago, u.name AS staff, t.names
+                           FROM requests q LEFT JOIN users u ON u.id = q.taken_by LEFT JOIN request_types t ON t.id = q.type_id
+                          WHERE q.stay_id = ? AND (q.status IN ('scheduled','open','taken') OR (q.status = 'done' AND q.done_at > NOW() - INTERVAL 10 MINUTE))
+                          ORDER BY q.status = 'done', COALESCE(q.due_at, q.created_at)");
+    $st->execute([$stayId]);
+    $list = [];
+    foreach ($st->fetchAll() as $q) {
+        $items = json_decode((string) $q['items'], true) ?: [];
+        $due = null;
+        if ($q['due_at']) {
+            $due = date('H:i', strtotime($q['due_at']));
+            if (date('Y-m-d', strtotime($q['due_at'])) !== date('Y-m-d')) $due = gt('tomorrow') . ' ' . $due;
         }
-        if (!$waTarget) {
-            jsonResponse(['success' => false, 'message' => t('guest_err_no_wa')]);
-        }
-        $input['message'] = 'WhatsApp → ' . $waTarget['label'];
+        $list[] = [
+            'id' => (int) $q['id'], 'icon' => $q['icon'],
+            'name' => $q['names'] ? name_in(names_decode($q['names']), $lang) : $q['type_name'],
+            'status' => $q['status'], 'ago' => (int) $q['ago'], 'note' => $q['note'], 'reply' => $q['reply'],
+            'urgent' => (bool) $q['urgent'], 'due' => $due,
+            'items' => array_map(fn($i) => $i['qty'] . '× ' . ($i['name_g'] ?? $i['name']), $items),
+            'total' => $q['total'] === null ? null : (float) $q['total'],
+            // Only the first name of who took the request ("Mario"), never the surname.
+            'staff' => $q['status'] === 'taken' && $q['staff'] ? strtok(trim($q['staff']), ' ') : null,
+        ];
     }
-
-    $res = createTableRequest(
-        $table,
-        (string) ($input['type'] ?? ''),
-        isset($input['order_item_id']) ? (int) $input['order_item_id'] : null,
-        (string) ($input['message'] ?? ''),
-        !empty($input['replacement_menu_item_id']) ? (int) $input['replacement_menu_item_id'] : null
-    );
-    if (!$res['ok']) {
-        jsonResponse(['success' => false, 'message' => t('guest_err_' . $res['error'])]);
-    }
-
-    // The guest asked for the table's bill: the order shows "bill requested"
-    // everywhere, as when the waiter asks for it (a seat's own copy on
-    // WhatsApp stays a request for the staff to handle).
-    if (($input['type'] ?? '') === 'bill' && (!$waTarget || empty($waTarget['seat']))) {
-        $cur = tableCurrentOrder($table);
-        if ($cur) markOrderBillRequested((int) $cur['id'], null, true);
-    }
-
-    if ($waTarget) {
-        // Tapping twice doesn't send two receipts: once every 3 minutes per number.
-        $stmt = getDBConnection()->prepare("
-            SELECT 1 FROM whatsapp_outbox WHERE kind = 'bill' AND phone = ? AND status <> 'failed'
-              AND created_at > NOW() - INTERVAL 3 MINUTE LIMIT 1
-        ");
-        $stmt->execute([$waTarget['phone']]);
-        if (!$stmt->fetchColumn()) {
-            $lang = guestLang($waTarget['country']);
-            $body = $waTarget['seat'] ? guestSeatBillText((int) $order['id'], $waTarget['seat'], $lang)
-                                      : guestBillText((int) $order['id'], $lang);
-            queueGuestWhatsapp((int) $order['id'], $waTarget['seat'], 'bill', $waTarget['phone'], $body);
-        }
-    }
-    jsonResponse(guestState($table) + ['request_id' => $res['id'], 'wa_sent_to' => $waTarget['label'] ?? null]);
+    $st = db()->prepare('SELECT dnd FROM rooms WHERE id = ?');
+    $st->execute([$room['id']]);
+    $open = [];
+    foreach (departments((int) $room['hotel_id']) as $d) $open[(int) $d['id']] = department_open($d);
+    return ['requests' => $list, 'dnd' => (bool) $st->fetchColumn(), 'open' => $open];
 }
-
-// The menu, for swapping a dish for another one.
-if (!empty($_GET['menu'])) {
-    jsonResponse(['success' => true, 'menu' => guestMenu()]);
-}
-
-jsonResponse(guestState($table) + (!empty($selfWelcome) ? ['welcome' => $selfWelcome] : []));

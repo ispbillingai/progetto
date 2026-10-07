@@ -1,167 +1,127 @@
 <?php
-/**
- * Admin Dashboard
- * Restaurant POS System
- */
+/** Hotel settings: name, colour, logo, welcome and info texts, code length, reminders. */
+require __DIR__ . '/../includes/app.php';
+require __DIR__ . '/../includes/layout.php';
 
-require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/table_visual.php';
-requireRole(['admin']);
+$user = require_role(['manager', 'superadmin']);
+$hotelId = (int) current_hotel_id();
+$hotel = hotel($hotelId);
+$dir = __DIR__ . '/../storage/v' . $hotelId;
 
-$pdo = getDBConnection();
+const REMIND_OPTIONS = [0 => 'Mai', 60 => 'Dopo 1 minuto', 120 => 'Dopo 2 minuti', 180 => 'Dopo 3 minuti', 300 => 'Dopo 5 minuti'];
+const ESCALATE_OPTIONS = [0 => 'Mai', 120 => 'Dopo 2 minuti', 300 => 'Dopo 5 minuti', 600 => 'Dopo 10 minuti', 900 => 'Dopo 15 minuti'];
 
-// Get statistics
-$stats = [];
-
-// Today's orders
-$stmt = $pdo->query("SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as total FROM orders WHERE DATE(opened_at) = CURDATE()");
-$stats['today'] = $stmt->fetch();
-
-// Active orders
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM orders WHERE status NOT IN ('paid', 'cancelled')");
-$stats['active_orders'] = $stmt->fetch()['count'];
-
-// Tables
-$stmt = $pdo->query("SELECT COUNT(*) as total, SUM(CASE WHEN status != 'free' THEN 1 ELSE 0 END) as occupied FROM tables_restaurant");
-$stats['tables'] = $stmt->fetch();
-
-// Users
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM users WHERE active = 1");
-$stats['users'] = $stmt->fetch()['count'];
-
-// Menu items
-$stmt = $pdo->query("SELECT COUNT(*) as count FROM menu_items WHERE active = 1");
-$stats['menu_items'] = $stmt->fetch()['count'];
-
-// Recent orders
-$stmt = $pdo->query("
-    SELECT o.*, COALESCE(o.table_label, t.table_number) AS table_number, u.full_name as waiter_name
-    FROM orders o
-    JOIN tables_restaurant t ON o.table_id = t.id
-    JOIN users u ON o.waiter_id = u.id
-    ORDER BY o.created_at DESC
-    LIMIT 10
-");
-$recentOrders = $stmt->fetchAll();
-
-$pageTitle = t('admin_dashboard');
-
-include __DIR__ . '/../includes/header.php';
-?>
-
-<div class="page-header">
-    <h1><i class="fas fa-tachometer-alt"></i> <?= te('dashboard') ?></h1>
-</div>
-
-<!-- Stats -->
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-icon primary">
-            <i class="fas fa-receipt"></i>
-        </div>
-        <div>
-            <div class="stat-value"><?= $stats['today']['count'] ?></div>
-            <div class="stat-label"><?= te('orders_today') ?></div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon success">
-            <i class="fas fa-euro-sign"></i>
-        </div>
-        <div>
-            <div class="stat-value"><?= formatCurrency($stats['today']['total']) ?></div>
-            <div class="stat-label"><?= te('revenue_today') ?></div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon warning">
-            <i class="fas fa-clipboard-list"></i>
-        </div>
-        <div>
-            <div class="stat-value"><?= $stats['active_orders'] ?></div>
-            <div class="stat-label"><?= te('active_orders') ?></div>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon info">
-            <i class="fas fa-chair"></i>
-        </div>
-        <div>
-            <div class="stat-value"><?= $stats['tables']['occupied'] ?? 0 ?>/<?= $stats['tables']['total'] ?? 0 ?></div>
-            <div class="stat-label"><?= te('tables_occupied') ?></div>
-        </div>
-    </div>
-</div>
-
-<?php
-// Paid tables still to be cleared and laid again.
-$toLay = [];
-if (tablesToLay()) {
-    $toLay = getDBConnection()->query("
-        SELECT t.id, t.table_number, t.needs_reset_at, r.name AS room_name
-        FROM tables_restaurant t JOIN rooms r ON r.id = t.room_id
-        WHERE t.needs_reset_at IS NOT NULL AND t.status = 'free'
-        ORDER BY t.needs_reset_at
-    ")->fetchAll();
+/** Saves an uploaded file in the hotel folder; returns the new file name or an error string in $err. */
+function save_upload(string $field, array $allowed, int $maxBytes, string $prefix, string $dir, ?string &$err): ?string
+{
+    $f = $_FILES[$field] ?? null;
+    if (!$f || $f['error'] === UPLOAD_ERR_NO_FILE) return null;
+    if ($f['error'] !== UPLOAD_ERR_OK) { $err = 'Caricamento non riuscito (file troppo grande?).'; return null; }
+    if ($f['size'] > $maxBytes) { $err = 'File troppo grande (massimo ' . round($maxBytes / 1048576) . ' MB).'; return null; }
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($f['tmp_name']);
+    if (!isset($allowed[$mime])) { $err = 'Formato non valido.'; return null; }
+    if (!is_dir($dir) && !mkdir($dir, 0775, true)) { $err = 'Cartella di salvataggio non scrivibile.'; return null; }
+    $name = $prefix . '-' . bin2hex(random_bytes(6)) . '.' . $allowed[$mime];
+    if (!move_uploaded_file($f['tmp_name'], $dir . '/' . $name)) { $err = 'Salvataggio non riuscito.'; return null; }
+    return $name;
 }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_check();
+    $err = null;
+    $name = trim((string) ($_POST['name'] ?? ''));
+    $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($_POST['color'] ?? '')) ? strtolower($_POST['color']) : $hotel['color'];
+    if (!empty($_POST['brand_color'])) $color = BRAND_COLOR;
+    if ($name === '') $err = 'Il nome dell\'hotel è obbligatorio.';
+
+    $logo = $hotel['logo_file'];
+    if (!$err && ($new = save_upload('logo', ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp'], 3 << 20, 'logo', $dir, $err))) {
+        if ($logo) @unlink($dir . '/' . $logo);
+        $logo = $new;
+    }
+    if (!empty($_POST['remove_logo']) && $logo) { @unlink($dir . '/' . $logo); $logo = null; }
+
+    if ($err) {
+        flash($err, 'err');
+    } else {
+        db()->prepare('UPDATE hotels SET name = ?, color = ?, welcome_text = ?, info_text = ?, logo_file = ?,
+                              code_length = ?, remind_after = ?, escalate_after = ? WHERE id = ?')
+            ->execute([
+                mb_substr($name, 0, 120), $color,
+                mb_substr(trim((string) ($_POST['welcome_text'] ?? '')), 0, 500) ?: null,
+                mb_substr(trim((string) ($_POST['info_text'] ?? '')), 0, 3000) ?: null,
+                $logo,
+                max(3, min(6, (int) ($_POST['code_length'] ?? 4))),
+                in_array((int) ($_POST['remind_after'] ?? 120), array_keys(REMIND_OPTIONS), true) ? (int) $_POST['remind_after'] : 120,
+                in_array((int) ($_POST['escalate_after'] ?? 300), array_keys(ESCALATE_OPTIONS), true) ? (int) $_POST['escalate_after'] : 300,
+                $hotelId,
+            ]);
+        flash('Impostazioni salvate.');
+    }
+    redirect('admin/');
+}
+
+$counts = db()->prepare('SELECT (SELECT COUNT(*) FROM rooms WHERE hotel_id = ? AND active = 1) AS rooms,
+                                (SELECT COUNT(*) FROM users WHERE hotel_id = ? AND active = 1) AS staff');
+$counts->execute([$hotelId, $hotelId]);
+$counts = $counts->fetch();
+
+page_head('Impostazioni');
+admin_nav('settings');
 ?>
-<?php if ($toLay): ?>
-<div class="card mb-lg lay-card">
-    <div class="card-header">
-        <h2><i class="fas fa-broom" style="color:#2563eb;"></i> <?= te('tables_to_lay_title') ?></h2>
-        <span class="badge" style="background:#2563eb;color:#fff;"><?= count($toLay) ?></span>
-    </div>
-    <div class="card-body lay-list">
-        <?php foreach ($toLay as $lt): ?>
-            <div class="lay-row">
-                <div><strong><?= te('table') ?> <?= htmlspecialchars($lt['table_number']) ?></strong>
-                    <span class="text-muted"> · <?= htmlspecialchars($lt['room_name']) ?> · <?= te('table_to_lay_since', ['time' => date('H:i', strtotime($lt['needs_reset_at']))]) ?></span></div>
-                <?= tableLaidButton((int) $lt['id']) ?: '<span class="text-muted" style="font-size:.85rem;"><i class="fas fa-user-tie"></i> ' . te('table_laid_by_waiter') . '</span>' ?>
-            </div>
-        <?php endforeach; ?>
-    </div>
-</div>
-<?php endif; ?>
-<?= tableLayWatch() ?>
+<main class="wrap">
+  <?php if (!$counts['rooms'] || $counts['staff'] < 2): ?>
+  <div class="card steps">
+    <h2>Configurazione rapida</h2>
+    <ol>
+      <li class="<?= $counts['rooms'] ? 'done' : '' ?>"><a href="<?= h(app_path('admin/rooms.php')) ?>">Crea le camere</a> (anche tutte insieme: 101…130, con il piano)</li>
+      <li><a href="<?= h(app_path('admin/qr.php')) ?>">Stampa i QR</a> e mettili nelle camere</li>
+      <li><a href="<?= h(app_path('admin/departments.php')) ?>">Controlla i reparti</a> (spegni bar o cucina se non ci sono) e <a href="<?= h(app_path('admin/catalog.php')) ?>">le richieste</a> che l'ospite può fare</li>
+      <li class="<?= $counts['staff'] > 1 ? 'done' : '' ?>"><a href="<?= h(app_path('admin/staff.php')) ?>">Aggiungi il personale</a> e scegli per ognuno i reparti e i piani che segue</li>
+      <li>Ognuno installa l'app sul telefono (<a href="<?= h(app_path('staff/installa.php')) ?>" target="_blank">guida per iPhone e Android</a>) e tocca "Attiva"</li>
+      <li>Al check-in la reception dà all'ospite il codice della camera (lo vede nell'app, scheda Camere) e al check-out tocca la camera › Check-out</li>
+    </ol>
+  </div>
+  <?php endif; ?>
 
-<!-- Recent Orders -->
-<div class="card">
-    <div class="card-header">
-        <h2><?= te('recent_orders') ?></h2>
-        <a href="/admin/orders.php" class="btn btn-sm btn-outline"><?= te('view_all') ?></a>
-    </div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th><?= te('order_no') ?></th>
-                <th><?= te('table') ?></th>
-                <th><?= te('waiter') ?></th>
-                <th><?= te('total') ?></th>
-                <th><?= te('status') ?></th>
-                <th><?= te('time') ?></th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($recentOrders as $order): ?>
-                <tr>
-                    <td><strong><?= htmlspecialchars($order['order_number']) ?></strong></td>
-                    <td><?= htmlspecialchars($order['table_number']) ?></td>
-                    <td><?= htmlspecialchars($order['waiter_name']) ?></td>
-                    <td><strong><?= formatCurrency($order['total']) ?></strong></td>
-                    <td>
-                        <span class="badge badge-<?= 
-                            $order['status'] === 'paid' ? 'success' : 
-                            ($order['status'] === 'cancelled' ? 'danger' : 
-                            ($order['status'] === 'bill_requested' ? 'warning' : 'info')) 
-                        ?>">
-                            <?= htmlspecialchars(statusLabel($order['status'])) ?>
-                        </span>
-                    </td>
-                    <td><?= date('H:i', strtotime($order['created_at'])) ?></td>
-                </tr>
-            <?php endforeach; ?>
-        </tbody>
-    </table>
-</div>
+  <form class="card form" method="post" enctype="multipart/form-data">
+    <?= csrf_field() ?>
+    <h2>Hotel</h2>
+    <label>Nome dell'hotel<input name="name" required maxlength="120" value="<?= h($hotel['name']) ?>"></label>
+    <label>Colore della pagina ospiti<input type="color" name="color" value="<?= h($hotel['color']) ?>"></label>
+    <label class="check"><input type="checkbox" name="brand_color" value="1"<?= strtolower($hotel['color']) === BRAND_COLOR ? ' checked' : '' ?>> Usa i colori Upgrade (azzurro del logo)</label>
+    <label>Messaggio di benvenuto (facoltativo)<textarea name="welcome_text" rows="2" maxlength="500"><?= h($hotel['welcome_text']) ?></textarea></label>
+    <label>Informazioni utili per l'ospite (facoltative: Wi‑Fi, orari colazione, piscina, check-out…)
+      <textarea name="info_text" rows="5" maxlength="3000" placeholder="Wi‑Fi: rete HotelMare, password mare2026&#10;Colazione: 7:00–10:30 in sala al piano terra&#10;Check-out entro le 11:00"><?= h($hotel['info_text']) ?></textarea></label>
+    <label>Logo (PNG, JPG o WEBP, max 3 MB)<input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
+    <?php if ($hotel['logo_file']): ?>
+      <div class="preview"><img src="<?= h(app_path('file.php?v=' . $hotelId . '&f=logo&h=' . substr(md5($hotel['logo_file']), 0, 8))) ?>" alt="Logo">
+        <label class="check"><input type="checkbox" name="remove_logo" value="1"> Rimuovi logo</label></div>
+    <?php endif; ?>
 
-<?php include __DIR__ . '/../includes/footer.php'; ?>
+    <h2>Codici camera</h2>
+    <label>Cifre del codice
+      <select name="code_length">
+        <?php for ($i = 3; $i <= 6; $i++): ?><option value="<?= $i ?>"<?= (int) $hotel['code_length'] === $i ? ' selected' : '' ?>><?= $i ?> cifre</option><?php endfor; ?>
+      </select>
+      <span class="small muted">Vale per i nuovi codici, generati a ogni check-out.</span>
+    </label>
+
+    <h2>Se nessuno risponde</h2>
+    <p class="small muted">Quando nessuno del reparto tocca "Prendo io". Le urgenze arrivano subito a tutti.</p>
+    <label>Ricorda la richiesta allo stesso reparto
+      <select name="remind_after">
+        <?php foreach (REMIND_OPTIONS as $s => $label): ?><option value="<?= $s ?>"<?= (int) $hotel['remind_after'] === $s ? ' selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?>
+      </select>
+    </label>
+    <label>Avvisa tutto il personale, anche degli altri reparti (e ripeti finché qualcuno risponde)
+      <select name="escalate_after">
+        <?php foreach (ESCALATE_OPTIONS as $s => $label): ?><option value="<?= $s ?>"<?= (int) $hotel['escalate_after'] === $s ? ' selected' : '' ?>><?= h($label) ?></option><?php endforeach; ?>
+      </select>
+    </label>
+
+    <button class="btn primary">Salva</button>
+  </form>
+</main>
+<?php
+page_foot();
