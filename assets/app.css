@@ -348,7 +348,8 @@ body.waiter { padding-bottom: 40px; }
 .tcard { background: #fff; border: 1px solid var(--line); border-top: 3px solid var(--logo-cyan); border-radius: 12px; padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 3px; font: inherit; color: inherit; cursor: pointer; box-shadow: var(--shadow); }
 .tcard:hover { border-color: var(--logo-cyan); }
 .tcard.busy { border-color: var(--warn); border-top-color: var(--warn); background: #fffaf0; }
-.tcard.dnd { border-top-color: var(--danger); }
+.tcard.dnd { border-color: #f3b4b8; border-top-color: var(--danger); background: #fff1f2; }
+.tdnd { display: inline-block; margin-top: 4px; padding: 3px 9px; border-radius: 99px; background: var(--danger); color: #fff; font-size: .78rem; font-weight: 700; white-space: nowrap; }
 .tlabel { font-weight: 700; }
 .tcode { font: 800 1.5rem ui-monospace, Menlo, Consolas, monospace; letter-spacing: .1em; color: var(--brand); }
 .codes-list { max-height: 60vh; overflow-y: auto; margin: 10px 0; }

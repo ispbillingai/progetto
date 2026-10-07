@@ -160,7 +160,8 @@
       var c = el('button', 'tcard' + (active[r.id] ? ' busy' : '') + (r.dnd ? ' dnd' : ''));
       c.appendChild(el('span', 'tlabel', r.label));
       c.appendChild(el('span', 'tguest', r.guest || ''));
-      c.appendChild(el('span', 'tflag', (r.dnd ? '🔕 ' : '') + (active[r.id] || '')));
+      if (r.dnd) c.appendChild(el('span', 'tdnd', '🔕 Non disturbare'));
+      if (active[r.id]) c.appendChild(el('span', 'tflag', active[r.id]));
       c.onclick = function () { openRoom(r); };
       grid.appendChild(c);
     });
