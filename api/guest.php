@@ -102,13 +102,13 @@ if ($action === 'status') {
 
 json_out(['error' => 'action'], 400);
 
-/** The guest's requests (open, scheduled, taken and the ones done in the last 10 minutes), DND, open departments. */
+/** The guest's requests (open, scheduled, taken and the ones done in the last 3 minutes), DND, open departments. */
 function status_payload(array $room, int $stayId, string $lang): array
 {
     $st = db()->prepare("SELECT q.id, q.type_name, q.icon, q.status, q.note, q.items, q.total, q.due_at, q.reply, q.urgent,
                                 TIMESTAMPDIFF(SECOND, q.last_call_at, NOW()) AS ago, u.name AS staff, t.names
                            FROM requests q LEFT JOIN users u ON u.id = q.taken_by LEFT JOIN request_types t ON t.id = q.type_id
-                          WHERE q.stay_id = ? AND (q.status IN ('scheduled','open','taken') OR (q.status = 'done' AND q.done_at > NOW() - INTERVAL 10 MINUTE))
+                          WHERE q.stay_id = ? AND (q.status IN ('scheduled','open','taken') OR (q.status = 'done' AND q.done_at > NOW() - INTERVAL 3 MINUTE))
                           ORDER BY q.status = 'done', COALESCE(q.due_at, q.created_at)");
     $st->execute([$stayId]);
     $list = [];

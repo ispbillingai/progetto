@@ -112,10 +112,20 @@
     if (typeof res.dnd === 'boolean') dnd = res.dnd;
     render();
   }
+  // "Fatto" rows the guest closed with ✕ (they would disappear by themselves after 3 minutes anyway).
+  var dismissed = {};
+  try { (JSON.parse(localStorage.getItem('rh_dismissed') || '[]')).forEach(function (id) { dismissed[id] = true; }); } catch (e) {}
+  function dismiss(id) {
+    dismissed[id] = true;
+    try { localStorage.setItem('rh_dismissed', JSON.stringify(Object.keys(dismissed).slice(-50))); } catch (e) {}
+    render();
+  }
+
   function render() {
     statusBox.innerHTML = '';
-    if (requests.length) statusBox.appendChild(el('h2', 'status-h', T.your_requests));
-    requests.forEach(function (r) {
+    var visible = requests.filter(function (r) { return !(r.status === 'done' && dismissed[r.id]); });
+    if (visible.length) statusBox.appendChild(el('h2', 'status-h', T.your_requests));
+    visible.forEach(function (r) {
       var div = el('div', 'status-item ' + r.status + (r.urgent ? ' urgent' : ''));
       var main = el('div', 'status-main');
       main.appendChild(el('strong', null, (r.icon ? r.icon + ' ' : '') + r.name));
@@ -135,6 +145,10 @@
           api({ a: 'cancel', id: r.id }).then(function (res) { if (!handleError(res)) apply(res); });
         };
         div.appendChild(b);
+      } else if (r.status === 'done') {
+        var x = el('button', 'close-x', '✕'); x.type = 'button'; x.setAttribute('aria-label', 'OK');
+        x.onclick = function () { dismiss(r.id); };
+        div.appendChild(x);
       }
       statusBox.appendChild(div);
     });
