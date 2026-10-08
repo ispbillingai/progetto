@@ -46,6 +46,7 @@ page_head('Accesso', 'center');
   <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
   <label class="check"><input type="checkbox" name="remember" value="1" checked> Resta collegato su questo dispositivo</label>
   <button class="btn primary block">Entra</button>
+  <a class="video-link" href="<?= h(app_path('staff/installa.php')) ?>">📲 Installa l'app sul telefono (iPhone e Android)</a>
 </form>
 <?php
 page_foot(false);

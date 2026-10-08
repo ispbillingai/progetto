@@ -19,6 +19,8 @@ $config = [
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0369a1">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="RoomHotel">
 <title>RoomHotel · <?= h($hotel['name']) ?></title>
 <link rel="manifest" href="<?= h(app_path('staff/manifest.php')) ?>">
@@ -73,6 +75,7 @@ $config = [
     <button class="btn ghost small" id="followAll" type="button">Segui tutto</button>
   </div>
   <button class="btn block primary" id="codesBtn" type="button">🔢 Codici camere</button>
+  <a class="btn block" id="installBtn" href="<?= h(app_path('staff/installa.php')) ?>">📲 Installa l'app sul telefono</a>
   <div class="voice-row">
     <label class="check"><input type="checkbox" id="voiceOn"> 🔊 Leggi a voce le richieste che arrivano</label>
     <button class="btn small" id="voiceTest" type="button">Prova voce</button>

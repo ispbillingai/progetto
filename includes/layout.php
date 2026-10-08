@@ -11,6 +11,10 @@ function page_head(string $title, string $bodyClass = ''): void
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= h($title) ?> · RoomHotel</title>
 <link rel="icon" href="<?= h(app_path('icon.php?s=192')) ?>">
+<link rel="apple-touch-icon" href="<?= h(app_path('icon.php?s=180')) ?>">
+<link rel="manifest" href="<?= h(app_path('staff/manifest.php')) ?>">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RoomHotel">
 <link rel="stylesheet" href="<?= h(asset('assets/app.css')) ?>">
 </head>
 <body class="<?= h($bodyClass) ?>">

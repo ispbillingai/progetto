@@ -93,6 +93,7 @@ function guest_department_name(array $d): string
 <meta name="theme-color" content="<?= h($hotel['color']) ?>">
 <title><?= h($hotel['name']) ?> · <?= h(room_name($room['label'], gt('room'))) ?></title>
 <link rel="icon" href="<?= h(app_path('icon.php?s=192')) ?>">
+<link rel="apple-touch-icon" href="<?= h(app_path('icon.php?s=180')) ?>">
 <link rel="stylesheet" href="<?= h(asset('assets/app.css')) ?>">
 <?php if ($css = hotel_css($hotel)): ?><style><?= $css ?></style><?php endif; ?>
 </head>

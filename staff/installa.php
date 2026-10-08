@@ -21,6 +21,10 @@ $addIcon = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><
 <meta name="theme-color" content="#0786c4">
 <title>Installa l'app RoomHotel</title>
 <link rel="icon" href="<?= h(app_path('icon.php?s=192')) ?>">
+<link rel="apple-touch-icon" href="<?= h(app_path('icon.php?s=180')) ?>">
+<link rel="manifest" href="<?= h(app_path('staff/manifest.php')) ?>">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RoomHotel">
 <link rel="stylesheet" href="<?= h(asset('assets/app.css')) ?>">
 </head>
 <body class="install">

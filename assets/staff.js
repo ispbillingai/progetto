@@ -358,6 +358,17 @@
   };
   if (pushSupported) navigator.serviceWorker.register('sw.js').catch(function () {});
   if (isIos && !standalone) $('iosInstall').hidden = false;
+  // Install: Android Chrome offers a native prompt; Safari needs the guide (Share › Add to Home Screen).
+  var installPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installPrompt = e; });
+  $('installBtn').onclick = function (e) {
+    if (installPrompt) {
+      e.preventDefault();
+      installPrompt.prompt();
+      installPrompt.userChoice.then(function () { installPrompt = null; $('menuDialog').close(); });
+    }
+  };
+  if (standalone) $('installBtn').hidden = true;
   $('enable').hidden = false;
   pushState().then(function (txt) {
     if (/attive/.test(txt)) $('enableText').textContent = 'Tocca per attivare il suono delle richieste.';
