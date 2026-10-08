@@ -230,6 +230,7 @@ body.guest {
 .btn.speak .ico { font-size: 1.9rem; text-shadow: none; }
 .btn.speak strong { display: block; font-size: 1.1rem; }
 .btn.speak small { display: block; font-weight: 400; font-size: .8rem; opacity: .92; line-height: 1.25; }
+.btn.speak.off { background: #fff; color: var(--muted); border: 2px dashed var(--line); box-shadow: none; text-shadow: none; }
 .btn.speak.listening, .mic-btn.listening { animation: listen 1s ease-in-out infinite; background: var(--danger); }
 @keyframes listen { 50% { box-shadow: 0 0 0 8px rgba(192, 38, 45, .25); } }
 .note-wrap { position: relative; }

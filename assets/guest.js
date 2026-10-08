@@ -367,13 +367,17 @@
     try { rec.start(); } catch (e) { btn.classList.remove('listening'); toast(T.not_heard, true); }
   }
   window.__rh = { handleSpeech: handleSpeech, matchType: function (s) { var m = matchType(norm(s)); return m && m.type.name; } };
+  $('speakBtn').hidden = false;
   if (SR) {
-    $('speakBtn').hidden = false;
     $('noteMic').hidden = false;
     $('speakBtn').onclick = function () { listen(handleSpeech, $('speakBtn')); };
     $('noteMic').onclick = function () {
       listen(function (t) { var n = $('reqNote'); n.value = (n.value ? n.value + ' ' : '🎤 ') + t; }, $('noteMic'));
     };
+  } else {
+    // Firefox and others: no Web Speech recognition. Say why instead of hiding the button.
+    $('speakBtn').classList.add('off');
+    $('speakBtn').onclick = function () { toast(T.no_sr, true); };
   }
 
   buildDepts();
