@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mb_substr(trim((string) ($_POST['icon'] ?? '')), 0, 8),
         json_encode($names, JSON_UNESCAPED_UNICODE),
         mb_substr(trim((string) ($_POST['hint'] ?? '')), 0, 200) ?: null,
+        mb_substr(trim((string) ($_POST['speech'] ?? '')), 0, 200) ?: null,
         empty($_POST['ask_time']) ? 0 : 1, empty($_POST['ask_items']) ? 0 : 1, empty($_POST['urgent']) ? 0 : 1,
         max(0, min(720, (int) ($_POST['lead_minutes'] ?? 0))), (int) ($_POST['sort'] ?? 0),
     ];
@@ -37,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($names['it']) || !$fields[0]) {
             flash('Servono almeno il nome in italiano e il reparto.', 'err');
         } else {
-            db()->prepare('INSERT INTO request_types (hotel_id, department_id, icon, names, hint, ask_time, ask_items, urgent, lead_minutes, sort)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute(array_merge([$hotelId], $fields));
+            db()->prepare('INSERT INTO request_types (hotel_id, department_id, icon, names, hint, speech, ask_time, ask_items, urgent, lead_minutes, sort)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute(array_merge([$hotelId], $fields));
             flash('Richiesta "' . $names['it'] . '" aggiunta.');
         }
     } else {
@@ -46,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $st->execute([(int) ($_POST['id'] ?? 0), $hotelId]);
         $t = $st->fetch();
         if ($t && $action === 'save' && !empty($names['it']) && $fields[0]) {
-            db()->prepare('UPDATE request_types SET department_id = ?, icon = ?, names = ?, hint = ?, ask_time = ?, ask_items = ?, urgent = ?,
+            db()->prepare('UPDATE request_types SET department_id = ?, icon = ?, names = ?, hint = ?, speech = ?, ask_time = ?, ask_items = ?, urgent = ?,
                                   lead_minutes = ?, sort = ? WHERE id = ?')->execute(array_merge($fields, [$t['id']]));
             flash('Richiesta salvata.');
         } elseif ($t && $action === 'toggle') {
@@ -86,13 +87,14 @@ function type_form(array $t, array $depts, string $action): void
         <label class="check"><input type="checkbox" name="urgent" value="1"<?= !empty($t['urgent']) ? ' checked' : '' ?>> urgente (subito a tutti)</label>
         <label class="check">preavviso <input type="number" name="lead_minutes" value="<?= (int) ($t['lead_minutes'] ?? 0) ?>" min="0" max="720" class="w-sort"> min</label>
         <label class="check">ordine <input type="number" name="sort" value="<?= (int) ($t['sort'] ?? 0) ?>" class="w-sort"></label>
-        <details class="type-more"><summary>Altre lingue e suggerimento</summary>
+        <details class="type-more"><summary>Altre lingue, suggerimento e voce</summary>
           <div class="row">
             <label>Deutsch<input name="name_de" value="<?= h($n['de'] ?? '') ?>" maxlength="120"></label>
             <label>Français<input name="name_fr" value="<?= h($n['fr'] ?? '') ?>" maxlength="120"></label>
             <label>Español<input name="name_es" value="<?= h($n['es'] ?? '') ?>" maxlength="120"></label>
           </div>
           <label>Suggerimento nel campo note (in italiano)<input name="hint" value="<?= h($t['hint'] ?? '') ?>" maxlength="200" placeholder="es. Quanti? Per quante persone?"></label>
+          <label>Testo letto a voce dall'app del personale (vuoto = il nome in italiano)<input name="speech" value="<?= h($t['speech'] ?? '') ?>" maxlength="200" placeholder="es. Servono asciugamani"></label>
         </details>
       </div>
     </form>
@@ -105,6 +107,7 @@ function type_form(array $t, array $depts, string $action): void
     <p class="small muted">Ogni voce è un bottone sulla pagina della camera, nel riquadro del suo reparto. L'ospite può sempre aggiungere una nota.
       "Chiede un orario": sveglia, colazione, pulizia… la richiesta compare al reparto all'ora giusta (meno il preavviso).
       "Sceglie dal menu": l'ospite compone l'ordine dalle voci in <a href="<?= h(app_path('admin/menu.php')) ?>">Menu</a>.
+      L'app del personale legge a voce ogni richiesta che arriva ("Camera 101, Asciugamani"): il testo letto si cambia in "Altre lingue, suggerimento e voce".
       Le lingue mancanti usano l'inglese, poi l'italiano.</p>
   </div>
 

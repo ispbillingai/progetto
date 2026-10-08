@@ -128,13 +128,14 @@ function feed(int $hotelId, array $user): array
                     'guest' => $r['guest_name'], 'dnd' => (bool) $r['dnd'], 'code_age' => (int) $r['code_age']];
     }
 
-    $st = db()->prepare("SELECT q.*, r.label, r.zone, r.dnd, s.guest_name, u.name AS taken_name,
+    $st = db()->prepare("SELECT q.*, r.label, r.zone, r.dnd, s.guest_name, u.name AS taken_name, t.speech,
                                 TIMESTAMPDIFF(SECOND, q.created_at, NOW()) AS age,
                                 TIMESTAMPDIFF(SECOND, GREATEST(q.last_call_at, COALESCE(q.reminded_at, q.last_call_at),
                                                                COALESCE(q.escalated_at, q.last_call_at)), NOW()) AS alert_age,
                                 TIMESTAMPDIFF(SECOND, NOW(), q.due_at) AS due_in
                            FROM requests q JOIN rooms r ON r.id = q.room_id
                            LEFT JOIN stays s ON s.id = q.stay_id LEFT JOIN users u ON u.id = q.taken_by
+                           LEFT JOIN request_types t ON t.id = q.type_id
                           WHERE q.hotel_id = ? AND q.status IN ('scheduled','open','taken')
                           ORDER BY q.urgent DESC, COALESCE(q.due_at, q.created_at)");
     $st->execute([$hotelId]);
@@ -150,6 +151,7 @@ function feed(int $hotelId, array $user): array
             'guest' => $q['guest_name'], 'dnd' => (bool) $q['dnd'],
             'dept' => $d ? $d['name'] : '', 'dept_icon' => $d ? $d['icon'] : '',
             'what' => $q['type_name'], 'icon' => $q['icon'], 'note' => $q['note'],
+            'speech' => trim((string) $q['speech']) !== '' ? $q['speech'] : $q['type_name'],
             'items' => json_decode((string) $q['items'], true) ?: [], 'total' => $q['total'] === null ? null : (float) $q['total'],
             'due' => $q['due_at'] ? date('Y-m-d H:i', strtotime($q['due_at'])) : null, 'due_in' => $q['due_in'] === null ? null : (int) $q['due_in'],
             'urgent' => (bool) $q['urgent'], 'status' => $q['status'], 'reply' => $q['reply'],

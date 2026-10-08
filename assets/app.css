@@ -352,6 +352,8 @@ body.waiter { padding-bottom: 40px; }
 .tdnd { display: inline-block; margin-top: 4px; padding: 3px 9px; border-radius: 99px; background: var(--danger); color: #fff; font-size: .78rem; font-weight: 700; white-space: nowrap; }
 .tlabel { font-weight: 700; }
 .tcode { font: 800 1.5rem ui-monospace, Menlo, Consolas, monospace; letter-spacing: .1em; color: var(--brand); }
+.voice-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0 4px; padding-top: 10px; border-top: 1px solid var(--line); font-size: .92rem; }
+.voice-row label.check { margin: 0; }
 .codes-list { max-height: 60vh; overflow-y: auto; margin: 10px 0; }
 .codes-list .zone-title { margin: 10px 0 4px; }
 .code-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }

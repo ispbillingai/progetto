@@ -73,6 +73,10 @@ $config = [
     <button class="btn ghost small" id="followAll" type="button">Segui tutto</button>
   </div>
   <button class="btn block primary" id="codesBtn" type="button">🔢 Codici camere</button>
+  <div class="voice-row">
+    <label class="check"><input type="checkbox" id="voiceOn"> 🔊 Leggi a voce le richieste che arrivano</label>
+    <button class="btn small" id="voiceTest" type="button">Prova voce</button>
+  </div>
   <p class="small" id="pushState"></p>
   <button class="btn block" id="pushTest">Invia notifica di prova</button>
   <?php if ($config['admin']): ?><a class="btn block" href="<?= h($config['admin']) ?>">Gestione hotel</a><?php endif; ?>

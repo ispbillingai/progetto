@@ -30,11 +30,14 @@
   // ---------------------------------------------------------------- feed
   function apply(data) {
     if (!data || !data.requests) return;
-    var ring = null;
+    var ring = null, announce = [];
     if (seen) {
       data.requests.forEach(function (c) {
         var prev = seen[c.id];
-        if (c.status === 'open' && (prev === undefined || c.bump > prev)) ring = ring === 'urgent' || c.urgent ? 'urgent' : 'normal';
+        if (c.status === 'open' && (prev === undefined || c.bump > prev)) {
+          ring = ring === 'urgent' || c.urgent ? 'urgent' : 'normal';
+          announce.push(phrase(c, prev !== undefined));
+        }
       });
     }
     seen = {};
@@ -42,7 +45,31 @@
     state = data; fetchedAt = Date.now();
     render();
     if (ring) alertNew(ring);
+    if (announce.length) setTimeout(function () { speak(announce.join('. ')); }, 900);
   }
+
+  // ---------------------------------------------------------------- voice (Web Speech API, Italian)
+  var voiceOn = true;
+  try { voiceOn = localStorage.getItem('rh_voice') !== 'off'; } catch (e) {}
+  function phrase(c, again) {
+    var t = (c.urgent ? 'Urgente! ' : '') + (again ? 'Sollecito. ' : '') + rname(c.label) + '. ' + c.speech;
+    if (c.items.length) t += '. ' + c.items.map(function (i) { return i.qty + ' ' + i.name; }).join(', ');
+    if (c.due) t += '. Per le ' + c.due.slice(11);
+    if (c.note) t += '. ' + c.note;
+    return t;
+  }
+  function speak(text) {
+    if (!voiceOn || !('speechSynthesis' in window)) return;
+    try {
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = 'it-IT'; u.rate = 1;
+      var v = speechSynthesis.getVoices().filter(function (x) { return /^it/i.test(x.lang); })[0];
+      if (v) u.voice = v;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  if ('speechSynthesis' in window) speechSynthesis.getVoices();
   function refresh() {
     return get('feed').then(function (d) { failures = 0; setConn(true); apply(d); })
       .catch(function () { failures++; if (failures > 1) setConn(false); });
@@ -312,10 +339,22 @@
       audio.resume(); tone(880, 0, 0.12);
     } catch (e) { audio = null; }
     requestWakeLock();
+    speak('Notifiche vocali attive');
     subscribe().then(function (ok) {
       $('enable').hidden = true;
       toast(ok ? 'Suono e notifiche attivi' : 'Suono attivo (tieni l\'app aperta)');
     });
+  };
+  $('voiceOn').checked = voiceOn;
+  $('voiceOn').onchange = function () {
+    voiceOn = $('voiceOn').checked;
+    try { localStorage.setItem('rh_voice', voiceOn ? 'on' : 'off'); } catch (e) {}
+    if (voiceOn) speak('Lettura a voce attiva');
+  };
+  $('voiceTest').onclick = function () {
+    if (!('speechSynthesis' in window)) { toast('Questo browser non ha la sintesi vocale'); return; }
+    if (!voiceOn) { $('voiceOn').checked = true; $('voiceOn').onchange(); return; }
+    speak('Camera 101. Asciugamani. Due grandi, grazie');
   };
   if (pushSupported) navigator.serviceWorker.register('sw.js').catch(function () {});
   if (isIos && !standalone) $('iosInstall').hidden = false;
