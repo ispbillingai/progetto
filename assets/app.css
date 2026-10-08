@@ -183,11 +183,18 @@ td.actions form.inline, td.actions .btn { margin-right: 2px; }
 .qr-img svg { width: 100%; max-width: 200px; height: auto; display: block; margin: 0 auto; }
 .qr-text { font-size: .85rem; margin-top: 6px; }
 .qr-text.en { color: var(--muted); font-size: .78rem; margin-top: 2px; }
+.history-filter { gap: 12px; align-items: flex-end; }
+.history-filter label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: .9rem; }
+.history-filter select { width: auto; min-width: 180px; }
+.print-head { display: none; }
 @media print {
   @page { size: A4; margin: 10mm; }
   body { background: #fff; }
   .topbar, .no-print, .flash, .powered { display: none !important; }
   .wrap { padding: 0; max-width: none; }
+  .print-head { display: block; margin: 0 0 10px; font-size: 1.05rem; }
+  .history-print .card { border: 0; box-shadow: none; padding: 0; }
+  .history-print table.list th { background: #eef5f9; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .qr-sheet { grid-template-columns: 1fr 1fr; gap: 8mm; }
   .qr-card { height: 88mm; padding: 4mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .qr-img svg { max-width: 52mm; }
