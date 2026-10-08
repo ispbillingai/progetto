@@ -36,6 +36,15 @@ reworked for hotels. Nothing of the Focacciami POS that was here before is used.
 - **Cron** `bin/tick.php` every minute (checks twice): opens due scheduled requests; after
   `hotels.remind_after` s re-pushes the same people, after `escalate_after` s pushes everyone, repeated
   (0 = off; Admin › Impostazioni). Cron file (server config, not in git): `/etc/cron.d/roomhotel`.
+- **Voice** (2026-10-08): the staff app reads each incoming request aloud (Web Speech synthesis, it-IT;
+  `request_types.speech` = custom spoken text, toggle + test in the app's ☰ menu, saved in localStorage).
+  The guest can speak a request (🎤 Parla, Web Speech recognition in the guest's language; also a mic in
+  the note field): `guest.js` scores every button by `request_types.keywords` (comma list, defaults in
+  `DEFAULT_KEYWORDS` of `includes/catalog.php` by Italian name, editable in Admin › Richieste) plus the
+  button names, opens the matching sheet with the transcript as note ("🎤 …"), pre-picks menu items
+  (quantities from number words, stem matching) and the time ("alle 7 e mezza", "domani"). No match →
+  the first plain reception button. Only Chrome/Android and Safari/iOS have recognition; the 🎤 buttons
+  hide elsewhere. `window.__rh` exposes `handleSpeech`/`matchType` for headless tests.
 - **Guest page** `r.php` + `assets/guest.js`: departments with buttons, request sheet (note / time /
   items), live status (open, taken by first name, scheduled, done for 10 min, staff reply), cancel,
   "Non disturbare" toggle (`rooms.dnd`, shown on staff room cards), hotel `info_text`, 5 languages

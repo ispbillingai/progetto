@@ -293,13 +293,16 @@
     if (/^\d+$/.test(w)) return Math.min(20, +w);
     return NUMS[w] || 1;
   }
+  // "due insalate" picks "Insalata mista": words are compared by their stem (plurals, endings).
   function pickItems(dept, text) {
-    var picked = {};
+    var picked = {}, spoken = text.trim().split(' ');
     dept.items.forEach(function (it) {
       var words = norm(it.name).trim().split(' ').filter(function (w) { return w.length >= 4; });
-      for (var i = 0; i < words.length; i++) {
-        var idx = text.indexOf(' ' + words[i] + ' ');
-        if (idx >= 0) { picked[it.id] = qtyBefore(text, idx); break; }
+      for (var i = 0; i < words.length && !picked[it.id]; i++) {
+        var stem = words[i].slice(0, Math.max(4, words[i].length - 2));
+        for (var j = 0; j < spoken.length; j++) {
+          if (spoken[j].indexOf(stem) === 0) { picked[it.id] = qtyBefore(text, text.indexOf(' ' + spoken[j] + ' ')); break; }
+        }
       }
     });
     return picked;
