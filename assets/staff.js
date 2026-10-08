@@ -55,7 +55,7 @@
     var t = (c.urgent ? 'Urgente! ' : '') + (again ? 'Sollecito. ' : '') + rname(c.label) + '. ' + c.speech;
     if (c.items.length) t += '. ' + c.items.map(function (i) { return i.qty + ' ' + i.name; }).join(', ');
     if (c.due) t += '. Per le ' + c.due.slice(11);
-    if (c.note) t += '. ' + c.note;
+    if (c.note) t += '. ' + c.note.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
     return t;
   }
   function speak(text) {

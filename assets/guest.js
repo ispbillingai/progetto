@@ -263,6 +263,116 @@
     }).catch(function () { btn.disabled = false; err.textContent = T.error; err.hidden = false; });
   });
 
+  // ---------------------------------------------------------------- voice request (Web Speech API)
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var NUMS = { it: { un: 1, uno: 1, una: 1, due: 2, tre: 3, quattro: 4, cinque: 5, sei: 6 },
+               en: { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 },
+               de: { ein: 1, eine: 1, einen: 1, zwei: 2, drei: 3, vier: 4, 'fünf': 5, sechs: 6 },
+               fr: { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6 },
+               es: { un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 } }[G.lang] || {};
+  function norm(s) { return (' ' + s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ') + ' ').replace(/\s+/g, ' '); }
+  function has(text, word) { return text.indexOf(' ' + norm(word).trim() + ' ') >= 0; }
+  // Score every button against the sentence: keywords (multi-word ones weigh more) and the button's own names.
+  function matchType(text) {
+    var best = null, bestScore = 0;
+    G.depts.forEach(function (d) {
+      d.types.forEach(function (t) {
+        var score = 0;
+        t.kw.forEach(function (k) { if (has(text, k)) score += k.split(/\s+/).length; });
+        t.names.forEach(function (n) {
+          norm(n).trim().split(' ').forEach(function (w) { if (w.length >= 4 && has(text, w)) score += 0.5; });
+        });
+        if (score > bestScore) { bestScore = score; best = { dept: d, type: t }; }
+      });
+    });
+    return best;
+  }
+  function qtyBefore(text, idx) {
+    var before = text.slice(0, idx).trim().split(' ');
+    var w = before[before.length - 1] || '';
+    if (/^\d+$/.test(w)) return Math.min(20, +w);
+    return NUMS[w] || 1;
+  }
+  function pickItems(dept, text) {
+    var picked = {};
+    dept.items.forEach(function (it) {
+      var words = norm(it.name).trim().split(' ').filter(function (w) { return w.length >= 4; });
+      for (var i = 0; i < words.length; i++) {
+        var idx = text.indexOf(' ' + words[i] + ' ');
+        if (idx >= 0) { picked[it.id] = qtyBefore(text, idx); break; }
+      }
+    });
+    return picked;
+  }
+  function pickTime(text) {
+    var m = text.match(/ (?:alle|at|um|a|à|las|la) (\d{1,2})(?: (?:e|and|et|y) (mezza|mezzo|half|quarto|quarter|un quarto|\d{1,2}))? /) || text.match(/ (\d{1,2})[:.h](\d{2}) /);
+    if (!m) return null;
+    var h = +m[1], mm = m[2] === undefined ? 0 : /mezz|half/.test(m[2]) ? 30 : /quart/.test(m[2]) ? 15 : +m[2];
+    if (h > 23 || mm > 59) return null;
+    var tomorrow = / (domani|tomorrow|morgen|demain|manana) /.test(text);
+    return { time: ('0' + h).slice(-2) + ':' + ('0' + mm).slice(-2), when: tomorrow ? 'tomorrow' : 'today' };
+  }
+  function handleSpeech(transcript) {
+    var text = norm(transcript);
+    var m = matchType(text);
+    if (!m) {
+      var fb = null;
+      G.depts.forEach(function (d) { d.types.forEach(function (t) { if (t.id === G.fallback) fb = { dept: d, type: t }; }); });
+      if (!fb) { toast(T.no_match, true); return; }
+      m = fb; toast(T.no_match);
+    } else {
+      toast(T.heard.replace('{text}', transcript));
+    }
+    openRequest(m.dept, m.type);
+    if (!dialog.open) return;
+    $('reqNote').value = '🎤 ' + transcript;
+    if (m.type.items) {
+      var picked = pickItems(m.dept, text);
+      Object.keys(picked).forEach(function (id) { qty[id] = picked[id]; });
+      $('reqItems').querySelectorAll('.item-row').forEach(function (row, i) {
+        var it = m.dept.items[i];
+        if (it && picked[it.id]) { row.querySelector('.qty-num').textContent = picked[it.id]; row.classList.add('picked'); }
+      });
+      updateTotal();
+    }
+    if (m.type.time) {
+      var tm = pickTime(text);
+      if (tm) {
+        $('reqClock').value = tm.time;
+        var now = new Date(), hm = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
+        dialog.querySelector('input[name=when][value=' + (tm.when === 'tomorrow' || tm.time < hm ? 'tomorrow' : 'today') + ']').checked = true;
+      }
+    }
+  }
+  function listen(onResult, btn) {
+    if (!SR) return;
+    var rec = new SR();
+    rec.lang = G.speechLang; rec.interimResults = false; rec.maxAlternatives = 1;
+    var got = false;
+    btn.classList.add('listening');
+    toast(T.listening);
+    rec.onresult = function (e) {
+      got = true;
+      var t = e.results[0][0].transcript.trim();
+      if (t) onResult(t);
+    };
+    rec.onerror = function (e) {
+      btn.classList.remove('listening');
+      toast(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? T.mic_denied : T.not_heard, true);
+    };
+    rec.onend = function () { btn.classList.remove('listening'); if (!got) { toastEl.hidden = true; } };
+    try { rec.start(); } catch (e) { btn.classList.remove('listening'); toast(T.not_heard, true); }
+  }
+  window.__rh = { handleSpeech: handleSpeech, matchType: function (s) { var m = matchType(norm(s)); return m && m.type.name; } };
+  if (SR) {
+    $('speakBtn').hidden = false;
+    $('noteMic').hidden = false;
+    $('speakBtn').onclick = function () { listen(handleSpeech, $('speakBtn')); };
+    $('noteMic').onclick = function () {
+      listen(function (t) { var n = $('reqNote'); n.value = (n.value ? n.value + ' ' : '🎤 ') + t; }, $('noteMic'));
+    };
+  }
+
   buildDepts();
   if (G.verified) showActions();
   else setTimeout(function () { $('code').focus(); }, 300);

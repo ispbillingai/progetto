@@ -5,6 +5,7 @@
  */
 require __DIR__ . '/includes/app.php';
 require __DIR__ . '/includes/guest_i18n.php';
+require __DIR__ . '/includes/catalog.php';
 
 $token = (string) ($_GET['k'] ?? '');
 $room = room_by_token($token);
@@ -33,13 +34,20 @@ foreach (departments((int) $hotel['id']) as $d) {
         'hours' => department_hours($d), 'open' => department_open($d), 'types' => [], 'items' => [],
     ];
 }
+$fallbackType = null;   // where a spoken request goes when no button matches: the first plain reception button
 foreach (request_types((int) $hotel['id']) as $t) {
     if (!isset($depts[(int) $t['department_id']])) continue;
+    $names = names_decode($t['names']);
+    $kw = trim((string) ($t['keywords'] ?? '')) !== '' ? $t['keywords'] : default_keywords($names['it'] ?? '');
+    $kw = array_values(array_filter(array_map('trim', explode(',', mb_strtolower($kw)))));
     $depts[(int) $t['department_id']]['types'][] = [
-        'id' => (int) $t['id'], 'icon' => $t['icon'], 'name' => name_in(names_decode($t['names']), $lang),
+        'id' => (int) $t['id'], 'icon' => $t['icon'], 'name' => name_in($names, $lang),
         'hint' => $lang === 'it' ? $t['hint'] : null,
         'time' => (bool) $t['ask_time'], 'items' => (bool) $t['ask_items'], 'urgent' => (bool) $t['urgent'],
+        'kw' => $kw, 'names' => array_values($names),
     ];
+    if ($fallbackType === null && $depts[(int) $t['department_id']]['kind'] === 'reception'
+        && !$t['ask_time'] && !$t['ask_items'] && !$t['urgent']) $fallbackType = (int) $t['id'];
 }
 foreach (menu_items((int) $hotel['id']) as $it) {
     if (!isset($depts[(int) $it['department_id']])) continue;
@@ -58,6 +66,8 @@ $config = [
     'depts'      => $depts,
     'dnd'        => (bool) $room['dnd'],
     'lang'       => $lang,
+    'speechLang' => ['it' => 'it-IT', 'en' => 'en-US', 'de' => 'de-DE', 'fr' => 'fr-FR', 'es' => 'es-ES'][$lang],
+    'fallback'   => $fallbackType,
     't'          => guest_texts(),
 ];
 
@@ -112,6 +122,7 @@ function guest_department_name(array $d): string
 
   <section id="actions"<?= $verified ? '' : ' hidden' ?>>
     <div id="status" class="guest-status" aria-live="polite"></div>
+    <button class="btn speak" id="speakBtn" type="button" hidden><span class="ico">🎤</span><span><strong><?= h(gt('speak')) ?></strong><small><?= h(gt('speak_hint')) ?></small></span></button>
     <div id="deptList"></div>
     <button class="btn dnd" id="dndBtn" type="button"><span class="ico">🔕</span><span id="dndText"><?= h(gt('dnd')) ?></span></button>
     <?php if ($hotel['info_text']): ?>
@@ -144,7 +155,8 @@ function guest_department_name(array $d): string
       <input type="time" id="reqClock" step="300">
     </div>
     <label class="req-label" for="reqNote" id="reqNoteLabel"><?= h(gt('note_label')) ?></label>
-    <textarea id="reqNote" rows="2" maxlength="500" placeholder="<?= h(gt('note_ph')) ?>"></textarea>
+    <div class="note-wrap"><textarea id="reqNote" rows="2" maxlength="500" placeholder="<?= h(gt('note_ph')) ?>"></textarea>
+      <button class="mic-btn" id="noteMic" type="button" hidden aria-label="<?= h(gt('speak')) ?>">🎤</button></div>
     <p class="err-text" id="reqErr" hidden></p>
     <div class="row-btns">
       <button class="btn primary big" id="reqSend" value="send"><?= h(gt('send')) ?></button>

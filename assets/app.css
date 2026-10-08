@@ -226,6 +226,15 @@ body.guest {
 .btn.action:active { transform: scale(.98); }
 .btn.action .ico { font-size: 1.8rem; line-height: 1; text-shadow: none; }
 .btn.action.urgent { background: linear-gradient(135deg, #e5484d 0%, var(--danger) 100%); box-shadow: 0 6px 18px rgba(192, 38, 45, .3); }
+.btn.speak { width: 100%; margin: 4px 0 14px; min-height: 64px; border: 0; background: var(--grad); color: #fff; gap: 12px; justify-content: flex-start; text-align: left; padding: 10px 16px; box-shadow: 0 6px 18px color-mix(in srgb, var(--brand) 32%, transparent); text-shadow: 0 1px 2px rgba(0, 40, 70, .25); }
+.btn.speak .ico { font-size: 1.9rem; text-shadow: none; }
+.btn.speak strong { display: block; font-size: 1.1rem; }
+.btn.speak small { display: block; font-weight: 400; font-size: .8rem; opacity: .92; line-height: 1.25; }
+.btn.speak.listening, .mic-btn.listening { animation: listen 1s ease-in-out infinite; background: var(--danger); }
+@keyframes listen { 50% { box-shadow: 0 0 0 8px rgba(192, 38, 45, .25); } }
+.note-wrap { position: relative; }
+.note-wrap textarea { padding-right: 52px; }
+.mic-btn { position: absolute; right: 8px; top: 8px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--brand-soft); font-size: 1.2rem; cursor: pointer; }
 .btn.dnd { width: 100%; margin: 20px 0 6px; border: 2px solid var(--line); background: #fff; color: var(--text); gap: 10px; padding: 12px 14px; text-align: left; justify-content: flex-start; }
 .btn.dnd .ico { font-size: 1.4rem; }
 .btn.dnd.on { background: #fff7e6; border-color: var(--warn); color: var(--warn); font-size: .92rem; }
